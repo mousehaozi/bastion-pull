@@ -1,0 +1,7 @@
+/bastion-pull
+/dist/
+config.yaml
+state.json
+*.lock
+.DS_Store
+.idea/

@@ -1,0 +1,34 @@
+# bastion-pull configuration / 配置示例
+# Copy to config.yaml and run:  bastion-pull -c config.yaml
+
+# GitHub token (fine-grained PAT, "Contents: Read-only" on the repos below).
+# Can be omitted if the GITHUB_TOKEN environment variable is set.
+# 细粒度令牌，仅需目标仓库的 Contents 只读权限；也可用环境变量 GITHUB_TOKEN。
+token: github_pat_xxxxxxxxxxxxxxxx
+
+# How often to check for a new release. Minimum 10s, default 1m.
+# 检查间隔，最小 10s，默认 1m。
+interval: 60s
+
+# Where deployed versions are remembered (default: state.json next to this file).
+# 记录已部署版本的文件（默认与本配置文件同目录的 state.json）。
+# state_file: /var/lib/bastion-pull/state.json
+
+projects:
+  - name: studio                      # optional, used in logs / 可选，仅用于日志
+    repo: mousehaozi/StudioPlatform   # owner/name
+    assets:
+      # Unpack a .tar.gz / .tgz / .zip into a directory (the directory is replaced).
+      # 解压到目录（整个目录会被替换）。
+      - name: admin.tar.gz
+        extract_to: /var/www/studio/dist
+      - name: mobile.tar.gz
+        extract_to: /var/www/studio/dist2
+      # Copy a single file. "name" may be a glob such as "app-*.jar".
+      # 复制单个文件，name 支持通配符。
+      - name: InnovationStudio.jar
+        copy_to: /home/nccgd/studio/InnovationStudio-0.0.1-SNAPSHOT.jar
+        # mode: "0644"                # optional; default keeps the existing file's mode
+    # Shell command run after all assets are replaced (optional).
+    # 所有资产替换完成后执行的命令（可选）。
+    restart: systemctl restart innovation-studio.service

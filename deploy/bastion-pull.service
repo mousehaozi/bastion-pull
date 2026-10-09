@@ -1,0 +1,14 @@
+[Unit]
+Description=bastion-pull release watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/bastion-pull -c /etc/bastion-pull/config.yaml
+Restart=always
+RestartSec=10
+# Uncomment if the server reaches GitHub through a proxy / 如需代理访问 GitHub：
+# Environment=HTTPS_PROXY=http://127.0.0.1:7890
+
+[Install]
+WantedBy=multi-user.target

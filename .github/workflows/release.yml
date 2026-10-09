@@ -1,0 +1,85 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Compute version
+        id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=build-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cross-compile
+        env:
+          CGO_ENABLED: '0'
+          VERSION: ${{ steps.v.outputs.tag }}
+        run: |
+          mkdir -p dist
+          # goos goarch goarm("-" = none) suffix
+          while read -r os arch arm suffix; do
+            [ "$arm" = "-" ] && arm=""
+            name="bastion-pull_${VERSION}_${suffix}"
+            mkdir -p "dist/$name"
+            GOOS=$os GOARCH=$arch GOARM=$arm go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "dist/$name/bastion-pull" .
+            cp README.md config.example.yaml deploy/bastion-pull.service "dist/$name/"
+            tar -czf "dist/$name.tar.gz" -C dist "$name"
+            rm -rf "dist/$name"
+          done <<'EOT'
+          linux amd64 - linux_amd64
+          linux arm64 - linux_arm64
+          linux arm 7 linux_armv7
+          linux 386 - linux_386
+          linux riscv64 - linux_riscv64
+          linux loong64 - linux_loong64
+          linux mips64le - linux_mips64le
+          EOT
+          (cd dist && sha256sum *.tar.gz > checksums.txt)
+          ls -lh dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist/*.tar.gz dist/checksums.txt \
+            --title "$TAG" --notes "Commit: $GITHUB_SHA" --target "$GITHUB_SHA" --generate-notes
+
+      - name: Prune old auto builds (keep 10)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --limit 200 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("build-"))] | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' |
+          while read -r t; do gh release delete "$t" --cleanup-tag --yes; done
