@@ -60,6 +60,12 @@ Options and environment variables:
 | `--uninstall` | Remove the binary and the service, keep `/etc/bastion-pull` |
 | `GH_PROXY=https://ghfast.top/` | Prefix for GitHub URLs, for servers with a poor connection to GitHub |
 
+If `raw.githubusercontent.com` is blocked (`Connection reset by peer`), fetch the script through a mirror, or skip it and use the offline method below:
+
+```bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mousehaozi/bastion-pull/main/install.sh | sudo env GH_PROXY=https://ghfast.top/ bash
+```
+
 If the server cannot reach GitHub, download `bastion-pull_<version>_linux_<arch>.tar.gz` and `checksums.txt` on another machine, copy them over, and run `sudo ./install.sh --file bastion-pull_<version>_linux_<arch>.tar.gz` (`install.sh` is also inside the archive).
 
 ### Manual install
@@ -250,6 +256,12 @@ journalctl -u bastion-pull -f
 | `--file <archive.tar.gz>` | 使用本地压缩包安装（离线；压缩包旁有 `checksums.txt` 时会校验） |
 | `--uninstall` | 卸载程序和服务，保留 `/etc/bastion-pull` |
 | `GH_PROXY=https://ghfast.top/` | GitHub 地址前缀，用于访问 GitHub 较慢的服务器 |
+
+如果 `raw.githubusercontent.com` 被屏蔽（`Connection reset by peer`），可以通过镜像获取脚本，或直接用下面的离线方式：
+
+```bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mousehaozi/bastion-pull/main/install.sh | sudo env GH_PROXY=https://ghfast.top/ bash
+```
 
 如果服务器连不上 GitHub，可以在别的机器上下载 `bastion-pull_<版本>_linux_<架构>.tar.gz` 和 `checksums.txt`，拷贝到服务器后执行 `sudo ./install.sh --file bastion-pull_<版本>_linux_<架构>.tar.gz`（压缩包里也带有 `install.sh`）。
 

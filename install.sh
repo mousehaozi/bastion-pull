@@ -86,10 +86,14 @@ if [ -n "$LOCAL_FILE" ]; then
 else
   if [ -z "$VERSION" ]; then
     info "looking up latest release"
-    fetch "${GH_PROXY}https://api.github.com/repos/$REPO/releases/latest" "$TMP/latest.json" >/dev/null 2>&1 \
-      || die "cannot reach GitHub. Download the archive manually and use --file, or set GH_PROXY. / 无法连接 GitHub，可手动下载后用 --file 安装，或设置 GH_PROXY"
-    VERSION="$(grep -m1 '"tag_name"' "$TMP/latest.json" | sed -E 's/.*"tag_name"[^"]*"([^"]+)".*/\1/')"
-    [ -n "$VERSION" ] || die "cannot determine latest version"
+    # github.com/<repo>/releases/latest redirects to .../releases/tag/<tag>; no API needed
+    if command -v curl >/dev/null 2>&1; then
+      LOC="$(curl -sSL --retry 3 --connect-timeout 15 -o /dev/null -w '%{url_effective}' "${GH_PROXY}https://github.com/$REPO/releases/latest" 2>/dev/null || true)"
+    else
+      LOC="$(wget -q --spider -S --max-redirect=0 "${GH_PROXY}https://github.com/$REPO/releases/latest" 2>&1 | sed -n 's/^ *[Ll]ocation: *//p' | tr -d '\r' | head -n1 || true)"
+    fi
+    VERSION="${LOC##*/tag/}"
+    case "$VERSION" in ""|*/*|*" "*) die "cannot determine the latest version. Check the network, set GH_PROXY, use --version <tag>, or download manually and use --file. / 无法获取最新版本，请检查网络、设置 GH_PROXY、用 --version 指定，或手动下载后用 --file" ;; esac
   fi
   info "version: $VERSION"
   NAME="bastion-pull_${VERSION}_linux_${ARCH}.tar.gz"
