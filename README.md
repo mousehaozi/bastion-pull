@@ -23,7 +23,46 @@ Typical flow: *GitHub Actions builds and publishes a Release → bastion-pull no
 - Static binary, no dependencies. Linux builds for amd64, arm64, armv7, 386, riscv64, loong64, mips64le
 - Honors `HTTPS_PROXY` / `NO_PROXY`
 
-### Install
+### Quick install (recommended)
+
+On the server, as root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mousehaozi/bastion-pull/main/install.sh | sudo bash
+```
+
+The script:
+
+1. detects the CPU architecture (amd64, arm64, armv7, 386, riscv64, loong64, mips64le),
+2. downloads the matching binary from the latest release and verifies its SHA-256,
+3. installs it to `/usr/local/bin/bastion-pull`, so the `bastion-pull` command works globally,
+4. creates the default config `/etc/bastion-pull/config.yaml` (mode 600) if it does not exist yet; an existing config is never overwritten,
+5. registers the `bastion-pull` systemd service, **enabled at boot** and with `Restart=always`, so it starts after a server reboot and restarts after a crash,
+6. prints where the config file is and what to do next.
+
+After it finishes you **must fill in the config file**, then start the service:
+
+```bash
+sudo vi /etc/bastion-pull/config.yaml                       # token, repo, assets, restart command
+sudo bastion-pull -c /etc/bastion-pull/config.yaml -once    # optional: test once in the foreground
+sudo systemctl start bastion-pull
+journalctl -u bastion-pull -f
+```
+
+The service is not started on a fresh install because the default config is only a template. Running the script again later **upgrades** the binary, keeps your config, and restarts the service.
+
+Options and environment variables:
+
+| | |
+|---|---|
+| `--version <tag>` | Install a specific release instead of the latest |
+| `--file <archive.tar.gz>` | Install from a local archive (offline; if `checksums.txt` sits next to it, it is verified) |
+| `--uninstall` | Remove the binary and the service, keep `/etc/bastion-pull` |
+| `GH_PROXY=https://ghfast.top/` | Prefix for GitHub URLs, for servers with a poor connection to GitHub |
+
+If the server cannot reach GitHub, download `bastion-pull_<version>_linux_<arch>.tar.gz` and `checksums.txt` on another machine, copy them over, and run `sudo ./install.sh --file bastion-pull_<version>_linux_<arch>.tar.gz` (`install.sh` is also inside the archive).
+
+### Manual install
 
 1. Download the archive for your CPU from the [Releases](../../releases) page and verify it against `checksums.txt`:
 
@@ -175,7 +214,46 @@ Every push to `main` is tested, cross-compiled and published as a release named 
 - 静态二进制，无依赖。提供 amd64、arm64、armv7、386、riscv64、loong64、mips64le 的 Linux 版本
 - 支持 `HTTPS_PROXY` / `NO_PROXY` 环境变量
 
-### 安装
+### 一键安装（推荐）
+
+在服务器上用 root 执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mousehaozi/bastion-pull/main/install.sh | sudo bash
+```
+
+脚本会依次完成：
+
+1. 检测 CPU 架构（amd64、arm64、armv7、386、riscv64、loong64、mips64le）；
+2. 从最新 Release 下载对应架构的二进制，并校验 SHA-256；
+3. 安装到 `/usr/local/bin/bastion-pull`，之后可在任意位置直接使用 `bastion-pull` 命令；
+4. 如果 `/etc/bastion-pull/config.yaml` 不存在，则创建默认配置（权限 600）；已有配置绝不会被覆盖；
+5. 注册 `bastion-pull` 的 systemd 服务，**设置开机自启**并配置 `Restart=always`：服务器重启后自动启动，进程异常退出后自动重启；
+6. 输出配置文件的位置和下一步要做的事。
+
+脚本执行完后，你**必须先填写配置文件**，再启动服务：
+
+```bash
+sudo vi /etc/bastion-pull/config.yaml                       # 填写 token、仓库、资产路径、重启命令
+sudo bastion-pull -c /etc/bastion-pull/config.yaml -once    # 可选：前台试跑一次
+sudo systemctl start bastion-pull
+journalctl -u bastion-pull -f
+```
+
+首次安装不会自动启动服务，因为默认配置只是模板。以后再次运行该脚本即为**升级**：替换程序、保留你的配置、并自动重启服务。
+
+参数与环境变量：
+
+| | |
+|---|---|
+| `--version <tag>` | 安装指定版本，默认最新 |
+| `--file <archive.tar.gz>` | 使用本地压缩包安装（离线；压缩包旁有 `checksums.txt` 时会校验） |
+| `--uninstall` | 卸载程序和服务，保留 `/etc/bastion-pull` |
+| `GH_PROXY=https://ghfast.top/` | GitHub 地址前缀，用于访问 GitHub 较慢的服务器 |
+
+如果服务器连不上 GitHub，可以在别的机器上下载 `bastion-pull_<版本>_linux_<架构>.tar.gz` 和 `checksums.txt`，拷贝到服务器后执行 `sudo ./install.sh --file bastion-pull_<版本>_linux_<架构>.tar.gz`（压缩包里也带有 `install.sh`）。
+
+### 手动安装
 
 1. 到 [Releases](../../releases) 页面下载对应 CPU 架构的压缩包，并用 `checksums.txt` 校验：
 

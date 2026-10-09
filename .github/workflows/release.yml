@@ -53,7 +53,7 @@ jobs:
             name="bastion-pull_${VERSION}_${suffix}"
             mkdir -p "dist/$name"
             GOOS=$os GOARCH=$arch GOARM=$arm go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "dist/$name/bastion-pull" .
-            cp README.md config.example.yaml deploy/bastion-pull.service "dist/$name/"
+            cp README.md config.example.yaml install.sh deploy/bastion-pull.service "dist/$name/"
             tar -czf "dist/$name.tar.gz" -C dist "$name"
             rm -rf "dist/$name"
           done <<'EOT'
