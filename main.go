@@ -15,10 +15,11 @@ import (
 var version = "dev"
 
 func main() {
-	cfgPath := flag.String("c", "config.yaml", "path to the config file")
+	cfgPath := flag.String("c", defaultConfigPath(), "path to the config file")
 	once := flag.Bool("once", false, "check every project once, then exit (non-zero exit code on failure)")
 	showVersion := flag.Bool("version", false, "print version and exit")
-	notifyTest := flag.Bool("notify-test", false, "send a test notification to every configured target, then exit")
+	notifyTest := flag.Bool("notify-test", false, "send a dummy test notification to every configured target, then exit")
+	notifyLatest := flag.Bool("notify-latest", false, "send the real notification for each project's latest release (nothing is deployed), then exit")
 	flag.Parse()
 
 	if *showVersion {
@@ -32,16 +33,31 @@ func main() {
 		os.Exit(2)
 	}
 
-	if *notifyTest {
+	if *notifyTest || *notifyLatest {
 		if cfg.Notify.PushPlus == nil {
-			fmt.Fprintln(os.Stderr, "no notify.pushplus section in the config")
+			fmt.Fprintln(os.Stderr, "notifications are not configured: set notify.pushplus.token in", *cfgPath)
 			os.Exit(2)
 		}
-		if err := cfg.Notify.PushPlus.sendTest(context.Background()); err != nil {
-			fmt.Fprintln(os.Stderr, "notify test failed:", err)
+		ctx := context.Background()
+		failed := 0
+		if *notifyTest {
+			if err := cfg.Notify.PushPlus.sendTest(ctx); err != nil {
+				fmt.Fprintln(os.Stderr, "notify test failed:", err)
+				failed++
+			}
+		}
+		if *notifyLatest {
+			app, err := newApp(cfg)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			failed += app.notifyLatest(ctx)
+		}
+		if failed > 0 {
 			os.Exit(1)
 		}
-		fmt.Println("test notification sent")
+		fmt.Println("done: check your PushPlus messages")
 		return
 	}
 
@@ -98,4 +114,15 @@ func lockFile(path string) (func(), error) {
 		return nil, fmt.Errorf("another bastion-pull instance is already running (lock %s)", path)
 	}
 	return func() { f.Close() }, nil
+}
+
+// defaultConfigPath prefers ./config.yaml, then the location install.sh uses.
+func defaultConfigPath() string {
+	if _, err := os.Stat("config.yaml"); err == nil {
+		return "config.yaml"
+	}
+	if _, err := os.Stat("/etc/bastion-pull/config.yaml"); err == nil {
+		return "/etc/bastion-pull/config.yaml"
+	}
+	return "config.yaml"
 }

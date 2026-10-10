@@ -58,7 +58,7 @@ func TestPushPlusTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.PushPlus.notifyDeployed(context.Background(), Project{Name: "demo"},
-		&Release{TagName: "v1", HTMLURL: "https://x/y", Body: "- fix login\n- add <b>export</b>"}, []string{"app.jar"})
+		&Release{TagName: "v1", HTMLURL: "https://x/y", Body: "- fix login\n- add <b>export</b>"}, []string{"app.jar"}, "")
 
 	if len(f.reqs) != 3 {
 		t.Fatalf("want 3 requests, got %d", len(f.reqs))
@@ -182,5 +182,32 @@ func TestDeployTriggersNotification(t *testing.T) {
 	app.checkAll(context.Background())
 	if pp.count() != 2 {
 		t.Fatal("notify:false must suppress notifications")
+	}
+}
+
+func TestNotifyLatestDoesNotDeploy(t *testing.T) {
+	retryDelay = time.Millisecond
+	dir := t.TempDir()
+	f := newFakeGitHub(t)
+	f.web = makeTarGz(t, map[string]string{"index.html": "v1"})
+	f.jar = []byte("j")
+	pp := newFakePush(t)
+	cfg := testConfig(f, dir)
+	cfg.Notify.PushPlus = &PushPlusConfig{Token: "T", APIURL: pp.srv.URL, Targets: []PPTarget{{Topic: "01"}}}
+	if err := cfg.Notify.validate(); err != nil {
+		t.Fatal(err)
+	}
+	app, _ := newApp(cfg)
+	if app.notifyLatest(context.Background()) != 0 {
+		t.Fatal("unexpected failure")
+	}
+	if pp.count() != 1 || !strings.HasPrefix(pp.reqs[0]["title"], "【测试】") || pp.reqs[0]["topic"] != "01" {
+		t.Fatalf("bad notification: %v", pp.reqs)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "www")); err == nil {
+		t.Fatal("notify-latest must not deploy")
+	}
+	if len(app.state.Projects) != 0 {
+		t.Fatal("notify-latest must not touch state")
 	}
 }

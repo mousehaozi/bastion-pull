@@ -122,7 +122,7 @@ func (a *App) checkProject(ctx context.Context, p Project) error {
 		for i, m := range matched {
 			names[i] = m.Name
 		}
-		a.cfg.Notify.PushPlus.notifyDeployed(ctx, p, rel, names)
+		a.cfg.Notify.PushPlus.notifyDeployed(ctx, p, rel, names, "")
 	}
 	return nil
 }
@@ -161,4 +161,30 @@ func runRestart(ctx context.Context, command string) error {
 		slog.Info("restart output", "output", s)
 	}
 	return err
+}
+
+// notifyLatest sends the real notification for each project's latest release without deploying
+// anything. It is meant for checking the notification setup. Returns how many projects failed.
+func (a *App) notifyLatest(ctx context.Context) (failed int) {
+	pp := a.cfg.Notify.PushPlus
+	for _, p := range a.cfg.Projects {
+		if p.Notify != nil && !*p.Notify {
+			slog.Info("notifications disabled for project, skipping", "project", p.Name)
+			continue
+		}
+		rel, _, _, err := a.gh.latest(ctx, p.Repo, "")
+		if err != nil {
+			failed++
+			slog.Error("cannot fetch latest release", "project", p.Name, "error", err)
+			continue
+		}
+		var names []string
+		for _, ca := range p.Assets {
+			if m, err := matchAsset(rel, ca.Name); err == nil {
+				names = append(names, m.Name)
+			}
+		}
+		pp.notifyDeployed(ctx, p, rel, names, "【测试】")
+	}
+	return failed
 }

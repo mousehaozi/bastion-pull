@@ -125,7 +125,7 @@ func renderUpdate(ev updateEvent) (string, error) {
 	return b.String(), nil
 }
 
-func (p *PushPlusConfig) notifyDeployed(ctx context.Context, proj Project, rel *Release, assets []string) {
+func (p *PushPlusConfig) notifyDeployed(ctx context.Context, proj Project, rel *Release, assets []string, titlePrefix string) {
 	host, _ := os.Hostname()
 	ev := updateEvent{
 		Project: proj.Name, Tag: rel.TagName, Time: time.Now().Format("2006-01-02 15:04:05"),
@@ -136,7 +136,7 @@ func (p *PushPlusConfig) notifyDeployed(ctx context.Context, proj Project, rel *
 		slog.Warn("render notification failed", "error", err)
 		return
 	}
-	p.sendAll(ctx, fmt.Sprintf("【%s】已更新 %s", proj.Name, rel.TagName), content)
+	p.sendAll(ctx, fmt.Sprintf("%s【%s】已更新 %s", titlePrefix, proj.Name, rel.TagName), content)
 }
 
 func (p *PushPlusConfig) sendTest(ctx context.Context) error {

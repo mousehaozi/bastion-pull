@@ -186,6 +186,8 @@ cat <<MSG
         sudo bastion-pull -c $CONF -once
    3. Start the service / 启动服务:
         sudo systemctl start $SERVICE
+   4. Test notifications any time (optional) / 随时测试通知（可选）:
+        sudo bastion-pull -notify-latest
 
  The service is enabled: it auto-starts on boot and restarts on failure.
  服务已设置开机自启，异常退出会自动重启。
@@ -195,6 +197,7 @@ cat <<MSG
 
  Logs / 日志    : journalctl -u $SERVICE -f
  Status / 状态  : systemctl status $SERVICE
+ Test notify / 测试通知 : sudo bastion-pull -notify-latest
 MSG
 fi
 echo

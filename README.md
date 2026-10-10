@@ -155,7 +155,7 @@ Exactly one of `extract_to` / `copy_to` is required per asset. Unknown keys are 
 Command line:
 
 ```
-bastion-pull [-c config.yaml] [-once] [-notify-test] [-version]
+bastion-pull [-c config.yaml] [-once] [-notify-test] [-notify-latest] [-version]
 ```
 
 `-once` checks every project once and exits (exit code 1 if something failed), handy for testing or cron.
@@ -190,7 +190,12 @@ notify:
   ```
 
 - A failed notification is logged (`notification failed`) and retried 3 times, but never fails or repeats the deployment. Failed deployments do not send a message.
-- Test your settings without deploying anything: `bastion-pull -c /etc/bastion-pull/config.yaml -notify-test`
+- Test your settings at any time, without deploying anything and while the service is running (without `-c`, `/etc/bastion-pull/config.yaml` is used):
+
+  ```bash
+  sudo bastion-pull -notify-test      # a dummy message
+  sudo bastion-pull -notify-latest    # the real message for each project's latest release, titled "【测试】"
+  ```
 
 ### Behavior notes
 
@@ -385,7 +390,7 @@ projects:
 命令行：
 
 ```
-bastion-pull [-c config.yaml] [-once] [-notify-test] [-version]
+bastion-pull [-c config.yaml] [-once] [-notify-test] [-notify-latest] [-version]
 ```
 
 `-once` 表示每个项目只检查一次就退出（有失败时退出码为 1），方便测试或配合 cron。
@@ -420,7 +425,12 @@ notify:
   ```
 
 - 通知失败只会记录日志（`notification failed`）并重试 3 次，不会导致部署失败，也不会重复部署。部署失败时不发送消息。
-- 不部署也可以测试通知配置：`bastion-pull -c /etc/bastion-pull/config.yaml -notify-test`
+- 随时可以测试通知，不会部署任何东西，服务运行时也能执行（不写 `-c` 时默认使用 `/etc/bastion-pull/config.yaml`）：
+
+  ```bash
+  sudo bastion-pull -notify-test      # 发一条模拟消息
+  sudo bastion-pull -notify-latest    # 用各项目最新 Release 的真实内容发一条，标题带「【测试】」
+  ```
 
 ### 行为说明
 
