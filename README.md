@@ -160,6 +160,11 @@ projects:
 | `copy_to` | 目标文件路径（自动创建上级目录）。 |
 | `projects[].restart` | 该项目所有资产替换完成后执行一次的 shell 命令。退出码非 0 视为失败，下个周期重试。 |
 
+| `projects[].partial` | 适合 monorepo：Release 里**只带有变化的资产**。Release 里没有的资产会被跳过；上次部署之后发布的所有 Release 会合并处理（同一资产取最新的那个），连续发布多个 Release 也不会漏掉更新。默认 `false`，缺少资产会报错。 |
+| `projects[].assets[].restart` | 只有**这个资产**被更新时才执行的 shell 命令（相同命令只执行一次），先于项目级 `restart` 执行。用来只重启发生变化的那个服务。 |
+
+开启 `partial: true` 后，项目级 `restart` 也只在至少有一个资产被更新时才执行；如果 Release 不含任何已配置的资产，只记录版本、不重启。
+
 每个资产必须且只能配置 `extract_to` 或 `copy_to` 其中之一。出现未知配置项会直接报错，避免拼写错误被忽略。
 
 命令行：

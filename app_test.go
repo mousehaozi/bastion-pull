@@ -223,3 +223,77 @@ func TestLoadConfigValidation(t *testing.T) {
 		t.Fatalf("valid config rejected: %v", err)
 	}
 }
+
+func TestPartialReleases(t *testing.T) {
+	dir := t.TempDir()
+	web := makeTarGz(t, map[string]string{"index.html": "w"})
+	jar := []byte("jar")
+	// newest first, as GitHub returns them: 3 carries only web, 2 only the jar, 1 is already deployed
+	releases := `[
+	 {"id":3,"tag_name":"v3","body":"- web change","assets":[{"id":30,"name":"web.tar.gz","size":%d,"state":"uploaded"}]},
+	 {"id":2,"tag_name":"v2","body":"- api change","assets":[{"id":20,"name":"app.jar","size":%d,"state":"uploaded"}]},
+	 {"id":1,"tag_name":"v1","assets":[]}]`
+	mux := http.NewServeMux()
+	var latest atomic.Int64
+	latest.Store(3)
+	mux.HandleFunc("/repos/o/r/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		if latest.Load() == 3 {
+			fmt.Fprintf(w, `{"id":3,"tag_name":"v3","assets":[{"id":30,"name":"web.tar.gz","size":%d,"state":"uploaded"}]}`, len(web))
+		} else {
+			fmt.Fprintf(w, `{"id":4,"tag_name":"v4","assets":[{"id":40,"name":"web.tar.gz","size":%d,"state":"uploaded"}]}`, len(web))
+		}
+	})
+	mux.HandleFunc("/repos/o/r/releases", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, releases, len(web), len(jar))
+	})
+	mux.HandleFunc("/repos/o/r/releases/assets/", func(w http.ResponseWriter, r *http.Request) {
+		body := web
+		if strings.HasSuffix(r.URL.Path, "/20") {
+			body = jar
+		}
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(body))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	log := filepath.Join(dir, "restart.log")
+	cfg := &Config{
+		Token: "tok", APIURL: srv.URL, Interval: time.Minute,
+		StateFile: filepath.Join(dir, "state.json"),
+		Projects: []Project{{
+			Name: "t", Repo: "o/r", Partial: true,
+			Assets: []Asset{
+				{Name: "web.tar.gz", ExtractTo: filepath.Join(dir, "www")},
+				{Name: "app.jar", CopyTo: filepath.Join(dir, "app.jar"), Restart: "echo api >> " + log},
+			},
+		}},
+	}
+	app, err := newApp(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.state.Projects["o/r"] = projectState{ReleaseID: 1, Tag: "v1"}
+
+	if n := app.checkAll(context.Background()); n != 0 {
+		t.Fatal("pass failed")
+	}
+	read := func(p string) string { b, _ := os.ReadFile(filepath.Join(dir, p)); return string(b) }
+	if read("www/index.html") != "w" || read("app.jar") != "jar" {
+		t.Fatal("assets from both pending releases must be deployed")
+	}
+	if strings.Count(read("restart.log"), "api") != 1 {
+		t.Fatal("jar restart should run exactly once")
+	}
+
+	// a web-only release must not restart the backend
+	latest.Store(4)
+	app.state.Projects["o/r"] = projectState{ReleaseID: 3, Tag: "v3"}
+	releases = `[{"id":4,"tag_name":"v4","assets":[{"id":40,"name":"web.tar.gz","size":%[1]d,"state":"uploaded"}]}]`
+	app.etags = map[string]string{}
+	if n := app.checkAll(context.Background()); n != 0 {
+		t.Fatal("second pass failed")
+	}
+	if strings.Count(read("restart.log"), "api") != 1 {
+		t.Fatal("backend restarted although only web changed")
+	}
+}

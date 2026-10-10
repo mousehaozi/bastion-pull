@@ -23,10 +23,15 @@ type Config struct {
 }
 
 type Project struct {
-	Name    string  `yaml:"name"`
-	Repo    string  `yaml:"repo"`
-	Assets  []Asset `yaml:"assets"`
-	Restart string  `yaml:"restart"`
+	Name   string  `yaml:"name"`
+	Repo   string  `yaml:"repo"`
+	Assets []Asset `yaml:"assets"`
+	// Restart runs after a deployment in which at least one asset was updated.
+	Restart string `yaml:"restart"`
+	// Partial lets releases carry only some of the configured assets (monorepos that build just
+	// what changed). Missing assets are skipped, and releases published since the last deployment
+	// are merged, so none of them is lost.
+	Partial bool `yaml:"partial"`
 	// Notify turns update notifications on/off for this project (default: on when notify is configured).
 	Notify *bool `yaml:"notify"`
 }
@@ -37,6 +42,8 @@ type Asset struct {
 	ExtractTo string `yaml:"extract_to"`
 	CopyTo    string `yaml:"copy_to"`
 	Mode      string `yaml:"mode"`
+	// Restart runs only when this asset was updated (in addition to the project-level restart).
+	Restart string `yaml:"restart"`
 
 	mode os.FileMode
 }

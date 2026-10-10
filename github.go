@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -101,6 +102,42 @@ func (c *Client) latest(ctx context.Context, repo, etag string) (rel *Release, n
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
 		return nil, "", false, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
+}
+
+// releasesAfter returns the published releases newer than afterID, oldest first.
+func (c *Client) releasesAfter(ctx context.Context, repo string, afterID int64) ([]*Release, error) {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	req, err := c.newRequest(ctx, fmt.Sprintf("%s/repos/%s/releases?per_page=30", c.base, repo), "application/vnd.github+json")
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("list releases: unexpected status %d", resp.StatusCode)
+	}
+	var all []struct {
+		Release
+		Draft      bool `json:"draft"`
+		Prerelease bool `json:"prerelease"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&all); err != nil {
+		return nil, fmt.Errorf("decode releases: %w", err)
+	}
+	var out []*Release
+	for i := range all {
+		if all[i].Draft || all[i].Prerelease || all[i].ID <= afterID {
+			continue
+		}
+		r := all[i].Release
+		out = append(out, &r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
 }
 
 type fatalError struct{ err error }

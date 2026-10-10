@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -61,50 +62,95 @@ func (a *App) checkProject(ctx context.Context, p Project) error {
 
 	slog.Info("new release found", "project", p.Name, "tag", rel.TagName)
 
-	// 1. resolve every configured asset before downloading anything
-	matched := make([]ReleaseAsset, len(p.Assets))
-	for i, ca := range p.Assets {
-		m, err := matchAsset(rel, ca.Name)
-		if err != nil {
-			return fmt.Errorf("release %s: %w", rel.TagName, err)
+	// releases to merge: just the latest one, or (partial mode) everything since the last deployment
+	pending := []*Release{rel}
+	if cur, ok := a.state.Projects[p.Repo]; ok && p.Partial {
+		if list, err := a.gh.releasesAfter(ctx, p.Repo, cur.ReleaseID); err != nil {
+			slog.Warn("cannot list releases, using the latest only", "project", p.Name, "error", err)
+		} else if len(list) > 0 {
+			pending = list
 		}
-		matched[i] = m
 	}
 
-	// 2. download everything (resumable) before touching the live files
-	dlDir := filepath.Join(filepath.Dir(a.cfg.StateFile), "downloads", strings.ReplaceAll(p.Repo, "/", "_"))
-	if err := os.MkdirAll(dlDir, 0o755); err != nil {
-		return err
+	// 1. resolve every configured asset (newest pending release that carries it) before downloading
+	type job struct {
+		asset Asset
+		ra    ReleaseAsset
+		file  string
 	}
-	files := make([]string, len(p.Assets))
-	for i, ra := range matched {
-		files[i] = filepath.Join(dlDir, fmt.Sprintf("%d-%s", ra.ID, ra.Name))
-		slog.Info("downloading", "project", p.Name, "asset", ra.Name, "size", ra.Size)
-		if err := a.gh.download(ctx, p.Repo, ra, files[i]); err != nil {
+	var jobs []job
+	for _, ca := range p.Assets {
+		var found bool
+		var ra ReleaseAsset
+		var lastErr error
+		for i := len(pending) - 1; i >= 0; i-- {
+			m, err := matchAsset(pending[i], ca.Name)
+			if err == nil {
+				ra, found = m, true
+				break
+			}
+			if !errors.Is(err, errNoMatch) {
+				return fmt.Errorf("release %s: %w", pending[i].TagName, err)
+			}
+			lastErr = err
+		}
+		switch {
+		case found:
+			jobs = append(jobs, job{asset: ca, ra: ra})
+		case p.Partial:
+			slog.Debug("asset not in the pending releases, skipped", "asset", ca.Name)
+		default:
+			return fmt.Errorf("release %s: %w", rel.TagName, lastErr)
+		}
+	}
+
+	if len(jobs) > 0 {
+		// 2. download everything (resumable) before touching the live files
+		dlDir := filepath.Join(filepath.Dir(a.cfg.StateFile), "downloads", strings.ReplaceAll(p.Repo, "/", "_"))
+		if err := os.MkdirAll(dlDir, 0o755); err != nil {
 			return err
 		}
-	}
+		defer os.RemoveAll(dlDir)
+		for i := range jobs {
+			jobs[i].file = filepath.Join(dlDir, fmt.Sprintf("%d-%s", jobs[i].ra.ID, jobs[i].ra.Name))
+			slog.Info("downloading", "project", p.Name, "asset", jobs[i].ra.Name, "size", jobs[i].ra.Size)
+			if err := a.gh.download(ctx, p.Repo, jobs[i].ra, jobs[i].file); err != nil {
+				return err
+			}
+		}
 
-	// 3. replace
-	for i, ca := range p.Assets {
-		var err error
-		if ca.ExtractTo != "" {
-			slog.Info("extracting", "asset", matched[i].Name, "to", ca.ExtractTo)
-			err = extractReplace(files[i], matched[i].Name, ca.ExtractTo)
-		} else {
-			slog.Info("copying", "asset", matched[i].Name, "to", ca.CopyTo)
-			err = copyFileAtomic(files[i], ca.CopyTo, ca.mode)
+		// 3. replace
+		for _, j := range jobs {
+			var err error
+			if j.asset.ExtractTo != "" {
+				slog.Info("extracting", "asset", j.ra.Name, "to", j.asset.ExtractTo)
+				err = extractReplace(j.file, j.ra.Name, j.asset.ExtractTo)
+			} else {
+				slog.Info("copying", "asset", j.ra.Name, "to", j.asset.CopyTo)
+				err = copyFileAtomic(j.file, j.asset.CopyTo, j.asset.mode)
+			}
+			if err != nil {
+				return fmt.Errorf("apply %s: %w", j.ra.Name, err)
+			}
 		}
-		if err != nil {
-			return fmt.Errorf("apply %s: %w", matched[i].Name, err)
-		}
-	}
 
-	// 4. restart
-	if p.Restart != "" {
-		if err := runRestart(ctx, p.Restart); err != nil {
-			return fmt.Errorf("restart command: %w", err)
+		// 4. restart: per-asset commands for what changed (each once), then the project-level one
+		done := map[string]bool{}
+		for _, j := range jobs {
+			if j.asset.Restart != "" && !done[j.asset.Restart] {
+				done[j.asset.Restart] = true
+				if err := runRestart(ctx, j.asset.Restart); err != nil {
+					return fmt.Errorf("restart command for %s: %w", j.ra.Name, err)
+				}
+			}
 		}
+		if p.Restart != "" && !done[p.Restart] {
+			if err := runRestart(ctx, p.Restart); err != nil {
+				return fmt.Errorf("restart command: %w", err)
+			}
+		}
+	} else {
+		slog.Info("release carries none of the configured assets, nothing to deploy", "project", p.Name, "tag", rel.TagName)
 	}
 
 	// 5. remember; only now, so any earlier failure is retried on the next tick
@@ -113,19 +159,30 @@ func (a *App) checkProject(ctx context.Context, p Project) error {
 		return fmt.Errorf("save state: %w", err)
 	}
 	a.etags[p.Repo] = etag
-	os.RemoveAll(dlDir)
-	slog.Info("deployed", "project", p.Name, "tag", rel.TagName)
+	slog.Info("deployed", "project", p.Name, "tag", rel.TagName, "assets", len(jobs))
 
 	// 6. tell people; a failed notification never fails the (already finished) deployment
-	if a.cfg.Notify.PushPlus != nil && (p.Notify == nil || *p.Notify) {
-		names := make([]string, len(matched))
-		for i, m := range matched {
-			names[i] = m.Name
+	if len(jobs) > 0 && a.cfg.Notify.PushPlus != nil && (p.Notify == nil || *p.Notify) {
+		names := make([]string, len(jobs))
+		for i, j := range jobs {
+			names[i] = j.ra.Name
 		}
-		a.cfg.Notify.PushPlus.notifyDeployed(ctx, p, rel, names, "")
+		merged := *rel
+		if len(pending) > 1 {
+			var bodies []string
+			for _, r := range pending {
+				if strings.TrimSpace(r.Body) != "" {
+					bodies = append(bodies, r.Body)
+				}
+			}
+			merged.Body = strings.Join(bodies, "\n")
+		}
+		a.cfg.Notify.PushPlus.notifyDeployed(ctx, p, &merged, names, "")
 	}
 	return nil
 }
+
+var errNoMatch = errors.New("no asset matches")
 
 func matchAsset(rel *Release, pattern string) (ReleaseAsset, error) {
 	var found []ReleaseAsset
@@ -141,7 +198,7 @@ func matchAsset(rel *Release, pattern string) (ReleaseAsset, error) {
 	}
 	switch len(found) {
 	case 0:
-		return ReleaseAsset{}, fmt.Errorf("no asset matches %q (available: %s)", pattern, strings.Join(names, ", "))
+		return ReleaseAsset{}, fmt.Errorf("%w %q (available: %s)", errNoMatch, pattern, strings.Join(names, ", "))
 	case 1:
 		return found[0], nil
 	default:

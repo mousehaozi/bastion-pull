@@ -160,6 +160,11 @@ projects:
 | `copy_to` | Destination file path (parent directories are created). |
 | `projects[].restart` | Shell command run once after all assets of the project were replaced. A non-zero exit counts as failure and is retried next tick. |
 
+| `projects[].partial` | `true` for monorepos whose releases carry **only the assets that changed**. Assets missing from a release are skipped, and every release published since the last deployment is merged (the newest one that carries an asset wins), so a quick succession of releases never loses an update. Default `false`: a missing asset is an error. |
+| `projects[].assets[].restart` | Shell command run only when **this** asset was updated (once per distinct command), before the project-level `restart`. Use it to restart just the service that changed. |
+
+With `partial: true`, `projects[].restart` also only runs when at least one asset was actually updated. A release that carries none of the configured assets is recorded and skipped without any restart.
+
 Exactly one of `extract_to` / `copy_to` is required per asset. Unknown keys are rejected so typos do not go unnoticed.
 
 Command line:
