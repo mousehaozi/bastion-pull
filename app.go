@@ -115,6 +115,15 @@ func (a *App) checkProject(ctx context.Context, p Project) error {
 	a.etags[p.Repo] = etag
 	os.RemoveAll(dlDir)
 	slog.Info("deployed", "project", p.Name, "tag", rel.TagName)
+
+	// 6. tell people; a failed notification never fails the (already finished) deployment
+	if a.cfg.Notify.PushPlus != nil && (p.Notify == nil || *p.Notify) {
+		names := make([]string, len(matched))
+		for i, m := range matched {
+			names[i] = m.Name
+		}
+		a.cfg.Notify.PushPlus.notifyDeployed(ctx, p, rel, names)
+	}
 	return nil
 }
 

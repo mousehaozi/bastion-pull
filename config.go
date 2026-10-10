@@ -18,6 +18,7 @@ type Config struct {
 	APIURL    string        `yaml:"api_url"`
 	Interval  time.Duration `yaml:"interval"`
 	StateFile string        `yaml:"state_file"`
+	Notify    NotifyConfig  `yaml:"notify"`
 	Projects  []Project     `yaml:"projects"`
 }
 
@@ -26,6 +27,8 @@ type Project struct {
 	Repo    string  `yaml:"repo"`
 	Assets  []Asset `yaml:"assets"`
 	Restart string  `yaml:"restart"`
+	// Notify turns update notifications on/off for this project (default: on when notify is configured).
+	Notify *bool `yaml:"notify"`
 }
 
 type Asset struct {
@@ -77,6 +80,9 @@ func loadConfig(path string) (*Config, error) {
 	}
 	if cfg.StateFile == "" {
 		cfg.StateFile = filepath.Join(filepath.Dir(abs), "state.json")
+	}
+	if err := cfg.Notify.validate(); err != nil {
+		return nil, err
 	}
 	if len(cfg.Projects) == 0 {
 		return nil, fmt.Errorf("no projects configured")

@@ -26,6 +26,9 @@ var retryDelay = 3 * time.Second
 type Release struct {
 	ID      int64          `json:"id"`
 	TagName string         `json:"tag_name"`
+	Name    string         `json:"name"`
+	Body    string         `json:"body"`
+	HTMLURL string         `json:"html_url"`
 	Assets  []ReleaseAsset `json:"assets"`
 }
 

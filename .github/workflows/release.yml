@@ -73,8 +73,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.v.outputs.tag }}
         run: |
+          # release notes = commit subjects of this push (shown in update notifications)
+          jq -r '.commits[]?.message | split("\n")[0] | "- " + .' "$GITHUB_EVENT_PATH" > notes.md || true
+          [ -s notes.md ] || echo "- release $TAG" > notes.md
           gh release create "$TAG" dist/*.tar.gz dist/checksums.txt \
-            --title "$TAG" --notes "Commit: $GITHUB_SHA" --target "$GITHUB_SHA" --generate-notes
+            --title "$TAG" --notes-file notes.md --target "$GITHUB_SHA"
 
       - name: Prune old auto builds (keep 10)
         env:

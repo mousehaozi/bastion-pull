@@ -1,0 +1,13 @@
+<div style="font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;font-size:14px;line-height:1.6;color:#222">
+<h3 style="margin:0 0 6px;font-size:17px">🚀 {{.Project}} 已更新到 {{.Tag}}</h3>
+<div style="color:#888;font-size:12px;margin-bottom:10px">{{.Time}} · 服务器 {{.Host}}</div>
+{{- if .Notes}}
+<div style="font-weight:600;margin:8px 0 2px">更新内容</div>
+<ul style="margin:0;padding-left:20px">{{range .Notes}}<li>{{.}}</li>{{end}}</ul>
+{{- end}}
+<div style="font-weight:600;margin:10px 0 2px">已更新文件</div>
+<div style="color:#555">{{range $i, $a := .Assets}}{{if $i}}、{{end}}{{$a}}{{end}}</div>
+{{- if .URL}}
+<div style="margin-top:10px"><a href="{{.URL}}" style="color:#1677ff">查看发布详情</a></div>
+{{- end}}
+</div>

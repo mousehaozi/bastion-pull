@@ -22,6 +22,7 @@ Typical flow: *GitHub Actions builds and publishes a Release → bastion-pull no
 - If anything fails (download, replace, restart), nothing is marked as deployed and the next tick retries
 - Static binary, no dependencies. Linux builds for amd64, arm64, armv7, 386, riscv64, loong64, mips64le
 - Honors `HTTPS_PROXY` / `NO_PROXY`
+- Optional update notifications through [PushPlus](https://www.pushplus.plus) to one or more groups and/or friends
 
 ### Quick install (recommended)
 
@@ -154,10 +155,42 @@ Exactly one of `extract_to` / `copy_to` is required per asset. Unknown keys are 
 Command line:
 
 ```
-bastion-pull [-c config.yaml] [-once] [-version]
+bastion-pull [-c config.yaml] [-once] [-notify-test] [-version]
 ```
 
 `-once` checks every project once and exits (exit code 1 if something failed), handy for testing or cron.
+
+### Update notifications (PushPlus)
+
+After a project has been deployed successfully (files replaced and restart command finished), bastion-pull can send a short HTML message: project, version, time, server, a brief changelog and the updated files. The HTML template is compiled into the binary.
+
+```yaml
+notify:
+  pushplus:
+    token: your_pushplus_token          # or env PUSHPLUS_TOKEN
+    # channel: wechat                   # optional, default wechat
+    targets:                            # one or more; none = only the token owner
+      - name: dev-group
+        topic: your_group_code          # send to a group (group code)
+      - name: ops
+        to: friend_token_1,friend_token_2   # send to friends (comma separated or a YAML list)
+      - name: me                        # neither topic nor to = yourself
+```
+
+- Get the token on the PushPlus site (*Send message → token*). Group codes are created under *Group message*; friend tokens come from *Friends*.
+- Each target is one request. A target uses **either** `topic` **or** `to` (PushPlus ignores `to` when a group is given), so list a group and some friends as separate targets. At most 100 friend tokens per target (PushPlus limits non-members to 10).
+- Set `notify: false` on a project to silence it.
+- The "changelog" is taken from the GitHub Release notes (the first 8 lines, markdown stripped). In your release workflow, put the commit messages into the notes, for example:
+
+  ```yaml
+  - run: |
+      jq -r '.commits[]?.message | split("\n")[0] | "- " + .' "$GITHUB_EVENT_PATH" > notes.md
+      [ -s notes.md ] || echo "- manual build" > notes.md
+      gh release create "$TAG" web.tar.gz app.jar --notes-file notes.md
+  ```
+
+- A failed notification is logged (`notification failed`) and retried 3 times, but never fails or repeats the deployment. Failed deployments do not send a message.
+- Test your settings without deploying anything: `bastion-pull -c /etc/bastion-pull/config.yaml -notify-test`
 
 ### Behavior notes
 
@@ -219,6 +252,7 @@ Every push to `main` is tested, cross-compiled and published as a release named 
 - 任何一步失败（下载、替换、重启）都不会记为已部署，下个周期自动重试
 - 静态二进制，无依赖。提供 amd64、arm64、armv7、386、riscv64、loong64、mips64le 的 Linux 版本
 - 支持 `HTTPS_PROXY` / `NO_PROXY` 环境变量
+- 可选的更新通知：通过 [PushPlus（推送加）](https://www.pushplus.plus) 推送给一个或多个群组 / 好友
 
 ### 一键安装（推荐）
 
@@ -351,10 +385,42 @@ projects:
 命令行：
 
 ```
-bastion-pull [-c config.yaml] [-once] [-version]
+bastion-pull [-c config.yaml] [-once] [-notify-test] [-version]
 ```
 
 `-once` 表示每个项目只检查一次就退出（有失败时退出码为 1），方便测试或配合 cron。
+
+### 更新通知（PushPlus 推送加）
+
+项目部署成功（文件已替换、重启命令已执行完）后，bastion-pull 可以发送一条简洁的 HTML 消息：项目名、版本、时间、服务器、简要更新日志和已更新的文件。HTML 模板已编译在程序里。
+
+```yaml
+notify:
+  pushplus:
+    token: your_pushplus_token          # 或环境变量 PUSHPLUS_TOKEN
+    # channel: wechat                   # 可选，默认 wechat
+    targets:                            # 可配置一个或多个；不配置则只发给 token 所有者
+      - name: dev-group
+        topic: your_group_code          # 发送到群组（填群组编码）
+      - name: ops
+        to: friend_token_1,friend_token_2   # 发送给好友（逗号分隔，或写成 YAML 列表）
+      - name: me                        # topic 和 to 都不填 = 发给自己
+```
+
+- token 在 PushPlus 官网获取（*发送消息 → token*）；群组编码在*群组消息*里创建；好友令牌在*好友*里获取。
+- 每个发送对象对应一次请求。一个对象只能选 `topic` **或** `to`（填了群组时 PushPlus 会忽略 `to`），所以群组和好友请分开写成不同的对象。每个对象最多 100 个好友令牌（PushPlus 对非会员限制为 10 个）。
+- 在某个项目下写 `notify: false` 可关闭该项目的通知。
+- 「更新日志」来自 GitHub Release 的说明（取前 8 行，去掉 Markdown 标记）。请在发布流程里把提交信息写进说明，例如：
+
+  ```yaml
+  - run: |
+      jq -r '.commits[]?.message | split("\n")[0] | "- " + .' "$GITHUB_EVENT_PATH" > notes.md
+      [ -s notes.md ] || echo "- manual build" > notes.md
+      gh release create "$TAG" web.tar.gz app.jar --notes-file notes.md
+  ```
+
+- 通知失败只会记录日志（`notification failed`）并重试 3 次，不会导致部署失败，也不会重复部署。部署失败时不发送消息。
+- 不部署也可以测试通知配置：`bastion-pull -c /etc/bastion-pull/config.yaml -notify-test`
 
 ### 行为说明
 

@@ -18,6 +18,7 @@ func main() {
 	cfgPath := flag.String("c", "config.yaml", "path to the config file")
 	once := flag.Bool("once", false, "check every project once, then exit (non-zero exit code on failure)")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	notifyTest := flag.Bool("notify-test", false, "send a test notification to every configured target, then exit")
 	flag.Parse()
 
 	if *showVersion {
@@ -29,6 +30,19 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "config error:", err)
 		os.Exit(2)
+	}
+
+	if *notifyTest {
+		if cfg.Notify.PushPlus == nil {
+			fmt.Fprintln(os.Stderr, "no notify.pushplus section in the config")
+			os.Exit(2)
+		}
+		if err := cfg.Notify.PushPlus.sendTest(context.Background()); err != nil {
+			fmt.Fprintln(os.Stderr, "notify test failed:", err)
+			os.Exit(1)
+		}
+		fmt.Println("test notification sent")
+		return
 	}
 
 	unlock, err := lockFile(cfg.StateFile + ".lock")

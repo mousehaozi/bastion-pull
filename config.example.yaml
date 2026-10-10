@@ -14,6 +14,23 @@ interval: 60s
 # 记录已部署版本的文件（默认与本配置文件同目录的 state.json）。
 # state_file: /var/lib/bastion-pull/state.json
 
+# Update notifications via PushPlus (https://www.pushplus.plus). Optional.
+# Sent after a project was deployed successfully. Remove or comment out to disable.
+# PushPlus（推送加）更新通知，可选。项目部署成功后发送；不需要就删掉或注释整段。
+#notify:
+#  pushplus:
+#    token: your_pushplus_token        # or env PUSHPLUS_TOKEN / 或环境变量 PUSHPLUS_TOKEN
+#    # channel: wechat                 # optional, default wechat / 可选，默认 wechat
+#    # With no targets the message goes to the token owner only.
+#    # 不配置 targets 时只发给 token 所有者本人。
+#    targets:
+#      - name: dev-group               # a group: topic = group code / 群组：topic 填群组编码
+#        topic: your_group_code
+#      - name: ops                     # friends: to = friend tokens (comma separated or a list)
+#        to: friend_token_1,friend_token_2   # 好友：to 填好友令牌，逗号分隔或写成列表
+#      - name: me                      # neither topic nor to = yourself / 都不填 = 发给自己
+# Per project, "notify: false" turns notifications off / 单个项目可写 notify: false 关闭通知。
+
 projects:
   - name: studio                      # optional, used in logs / 可选，仅用于日志
     repo: mousehaozi/StudioPlatform   # owner/name
