@@ -155,15 +155,14 @@ projects:
 | `interval` | 检查间隔。 |
 | `state_file` | 记录各仓库已部署版本的 JSON 文件；未下载完的文件放在它旁边的 `downloads/` 目录。 |
 | `projects[].repo` | `owner/name`，同一个仓库只能出现一次。 |
-| `projects[].assets[].name` | Release 资产文件名或通配符（`*`、`?`、`[a-z]`）。匹配 0 个或多个都会报错。 |
+| `projects[].assets[].name` | Release 资产文件名或通配符（`*`、`?`、`[a-z]`）。同一个 Release 里匹配到多个会报错；匹配不到只表示这次 Release 不更新它。 |
 | `extract_to` | 把 `.tar.gz` / `.tgz` / `.zip` 解压到的目录。目录会被**整体替换**（旧文件会消失），其上级目录需要可写。 |
 | `copy_to` | 目标文件路径（自动创建上级目录）。 |
 | `projects[].restart` | 该项目所有资产替换完成后执行一次的 shell 命令。退出码非 0 视为失败，下个周期重试。 |
 
-| `projects[].partial` | 适合 monorepo：Release 里**只带有变化的资产**。Release 里没有的资产会被跳过；上次部署之后发布的所有 Release 会合并处理（同一资产取最新的那个），连续发布多个 Release 也不会漏掉更新。默认 `false`，缺少资产会报错。 |
 | `projects[].assets[].restart` | 只有**这个资产**被更新时才执行的 shell 命令（相同命令只执行一次），先于项目级 `restart` 执行。用来只重启发生变化的那个服务。 |
 
-开启 `partial: true` 后，项目级 `restart` 也只在至少有一个资产被更新时才执行；如果 Release 不含任何已配置的资产，只记录版本、不重启。
+**一切由匹配驱动。** Release 里只需要带有变化的资产（比如这次 Actions 只编译了管理端）。bastion-pull 会把 Release 的资产和配置里的 `assets[].name` 逐个匹配：匹配上的就执行对应动作（解压/复制，再执行它自己的 `restart`），配置了但这次 Release 里没有的资产直接跳过。项目级 `restart` 只在至少有一个资产匹配时才执行；一个都没匹配上，只记录版本、不做任何事。如果两次检查之间出现了多个 Release，会合并处理（同一资产取最新的），连续发布也不会漏掉更新。
 
 每个资产必须且只能配置 `extract_to` 或 `copy_to` 其中之一。出现未知配置项会直接报错，避免拼写错误被忽略。
 

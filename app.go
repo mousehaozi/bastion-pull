@@ -62,9 +62,10 @@ func (a *App) checkProject(ctx context.Context, p Project) error {
 
 	slog.Info("new release found", "project", p.Name, "tag", rel.TagName)
 
-	// releases to merge: just the latest one, or (partial mode) everything since the last deployment
+	// releases to merge: everything published since the last deployment, so that quick successive
+	// releases (each carrying only what changed) never lose an update
 	pending := []*Release{rel}
-	if cur, ok := a.state.Projects[p.Repo]; ok && p.Partial {
+	if cur, ok := a.state.Projects[p.Repo]; ok {
 		if list, err := a.gh.releasesAfter(ctx, p.Repo, cur.ReleaseID); err != nil {
 			slog.Warn("cannot list releases, using the latest only", "project", p.Name, "error", err)
 		} else if len(list) > 0 {
@@ -72,7 +73,7 @@ func (a *App) checkProject(ctx context.Context, p Project) error {
 		}
 	}
 
-	// 1. resolve every configured asset (newest pending release that carries it) before downloading
+	// 1. match every configured asset against the pending releases (newest wins) before downloading
 	type job struct {
 		asset Asset
 		ra    ReleaseAsset
@@ -94,13 +95,11 @@ func (a *App) checkProject(ctx context.Context, p Project) error {
 			}
 			lastErr = err
 		}
-		switch {
-		case found:
+		// assets the release does not carry are simply not part of this update
+		if found {
 			jobs = append(jobs, job{asset: ca, ra: ra})
-		case p.Partial:
-			slog.Debug("asset not in the pending releases, skipped", "asset", ca.Name)
-		default:
-			return fmt.Errorf("release %s: %w", rel.TagName, lastErr)
+		} else {
+			slog.Debug("asset not in the pending releases, skipped", "asset", ca.Name, "reason", lastErr)
 		}
 	}
 

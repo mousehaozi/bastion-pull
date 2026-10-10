@@ -261,7 +261,7 @@ func TestPartialReleases(t *testing.T) {
 		Token: "tok", APIURL: srv.URL, Interval: time.Minute,
 		StateFile: filepath.Join(dir, "state.json"),
 		Projects: []Project{{
-			Name: "t", Repo: "o/r", Partial: true,
+			Name: "t", Repo: "o/r",
 			Assets: []Asset{
 				{Name: "web.tar.gz", ExtractTo: filepath.Join(dir, "www")},
 				{Name: "app.jar", CopyTo: filepath.Join(dir, "app.jar"), Restart: "echo api >> " + log},

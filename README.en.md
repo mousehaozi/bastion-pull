@@ -155,15 +155,14 @@ projects:
 | `interval` | Time between checks. |
 | `state_file` | JSON file recording the deployed release of every repo. A `downloads/` folder for partial downloads is created beside it. |
 | `projects[].repo` | `owner/name`. Each repo may appear once. |
-| `projects[].assets[].name` | Release asset file name or glob (`*`, `?`, `[a-z]`). Zero or several matches is an error. |
+| `projects[].assets[].name` | Release asset file name or glob (`*`, `?`, `[a-z]`). Several matches in one release is an error; no match just means this release does not update it. |
 | `extract_to` | Directory to unpack `.tar.gz` / `.tgz` / `.zip` into. The directory is **replaced as a whole** (old files disappear). Its parent must be writable. |
 | `copy_to` | Destination file path (parent directories are created). |
 | `projects[].restart` | Shell command run once after all assets of the project were replaced. A non-zero exit counts as failure and is retried next tick. |
 
-| `projects[].partial` | `true` for monorepos whose releases carry **only the assets that changed**. Assets missing from a release are skipped, and every release published since the last deployment is merged (the newest one that carries an asset wins), so a quick succession of releases never loses an update. Default `false`: a missing asset is an error. |
 | `projects[].assets[].restart` | Shell command run only when **this** asset was updated (once per distinct command), before the project-level `restart`. Use it to restart just the service that changed. |
 
-With `partial: true`, `projects[].restart` also only runs when at least one asset was actually updated. A release that carries none of the configured assets is recorded and skipped without any restart.
+**Matching drives everything.** A release only needs to carry the assets that changed (e.g. your Actions workflow only builds the admin app this time). For each release, bastion-pull matches its assets against the configured `assets[].name`; every match runs its action (unpack / copy, then its own `restart`), and configured assets the release does not carry are simply skipped. The project-level `restart` runs only if at least one asset matched. A release matching nothing is recorded and ignored. If several releases appeared since the last check, they are merged (the newest one carrying an asset wins), so quick successive releases never lose an update.
 
 Exactly one of `extract_to` / `copy_to` is required per asset. Unknown keys are rejected so typos do not go unnoticed.
 
