@@ -103,8 +103,9 @@ func TestNotifyConfigValidation(t *testing.T) {
 		t.Fatal("topic+to must be rejected")
 	}
 	t.Setenv("PUSHPLUS_TOKEN", "")
-	if (&NotifyConfig{PushPlus: &PushPlusConfig{}}).validate() == nil {
-		t.Fatal("missing token must be rejected")
+	empty := NotifyConfig{PushPlus: &PushPlusConfig{Targets: []PPTarget{{Topic: "g"}}}}
+	if err := empty.validate(); err != nil || empty.PushPlus != nil {
+		t.Fatal("empty token must disable notifications without failing")
 	}
 	p := filepath.Join(t.TempDir(), "c.yaml")
 	os.WriteFile(p, []byte(`token: x

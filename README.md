@@ -179,7 +179,7 @@ notify:
 
 - Get the token on the PushPlus site (*Send message → token*). Group codes are created under *Group message*; friend tokens come from *Friends*.
 - Each target is one request. A target uses **either** `topic` **or** `to` (PushPlus ignores `to` when a group is given), so list a group and some friends as separate targets. At most 100 friend tokens per target (PushPlus limits non-members to 10).
-- Set `notify: false` on a project to silence it.
+- Set `notify: false` on a project to silence it. An empty `token` disables notifications (a warning is logged) instead of failing.
 - The "changelog" is taken from the GitHub Release notes (the first 8 lines, markdown stripped). In your release workflow, put the commit messages into the notes, for example:
 
   ```yaml
@@ -409,7 +409,7 @@ notify:
 
 - token 在 PushPlus 官网获取（*发送消息 → token*）；群组编码在*群组消息*里创建；好友令牌在*好友*里获取。
 - 每个发送对象对应一次请求。一个对象只能选 `topic` **或** `to`（填了群组时 PushPlus 会忽略 `to`），所以群组和好友请分开写成不同的对象。每个对象最多 100 个好友令牌（PushPlus 对非会员限制为 10 个）。
-- 在某个项目下写 `notify: false` 可关闭该项目的通知。
+- 在某个项目下写 `notify: false` 可关闭该项目的通知。`token` 留空则整体关闭通知（日志里会有警告），不会导致程序报错。
 - 「更新日志」来自 GitHub Release 的说明（取前 8 行，去掉 Markdown 标记）。请在发布流程里把提交信息写进说明，例如：
 
   ```yaml

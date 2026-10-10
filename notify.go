@@ -75,7 +75,9 @@ func (c *NotifyConfig) validate() error {
 		p.Token = os.Getenv("PUSHPLUS_TOKEN")
 	}
 	if p.Token == "" {
-		return fmt.Errorf("notify.pushplus: token is required (or set PUSHPLUS_TOKEN)")
+		slog.Warn("notify.pushplus.token is empty: update notifications are disabled")
+		c.PushPlus = nil
+		return nil
 	}
 	if p.APIURL == "" {
 		p.APIURL = "https://www.pushplus.plus/send"
