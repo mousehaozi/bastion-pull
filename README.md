@@ -34,6 +34,41 @@
 - 支持 `HTTPS_PROXY` / `NO_PROXY` 环境变量
 - 可选的更新通知：通过 [PushPlus（推送加）](https://www.pushplus.plus) 推送给一个或多个群组 / 好友
 
+### 工作原理
+
+bastion-pull 对每个项目周期性地执行下面的流程：
+
+```mermaid
+flowchart TD
+    A[定时器到点] --> B["GET /releases/latest<br/>带 If-None-Match"]
+    B -- "304 无变化" --> Z[结束，等下个周期]
+    B -- "200" --> C{Release ID 与<br/>state.json 相同?}
+    C -- 是 --> Z
+    C -- 否 --> D["收集待部署 Release<br/>（上次部署之后发布的全部）"]
+    D --> E["用配置中的 assets[].name<br/>逐个匹配 Release 资产"]
+    E -- "一个都没匹配上" --> H
+    E -- "有匹配" --> F["下载全部匹配的资产<br/>（断点续传 + 大小/SHA-256 校验）"]
+    F --> G["逐个替换文件/目录（原子操作）<br/>→ 资产级 restart → 项目级 restart"]
+    G --> H[写入 state.json，发送通知]
+    F -. 失败 .-> R[不记录版本，下个周期重试]
+    G -. 失败 .-> R
+```
+
+1. **轮询：** 带上次的 `ETag` 请求 GitHub 的 *latest release*。没有新 Release 时返回 `304`，不消耗 API 限额。
+2. **判断是否已部署：** 拿 Release ID 和 `state.json` 里记录的比较，相同就跳过（所以 bastion-pull 自己重启后不会重复部署）。
+3. **收集待部署的 Release：** 取出上次部署之后发布的**所有**正式 Release（不含草稿和预发布，最多看最近 30 个），按发布顺序排列。首次运行（没有记录）时只看最新的那个。
+4. **按名称匹配：** 对配置里的每个资产，从最新的 Release 往旧的找第一个文件名匹配的资产：
+   - 找到 → 这个资产本次要更新（用最新的那份）；
+   - 都找不到 → 本次不动它，旧文件原样保留；
+   - 同一个 Release 里匹配到多个 → 报错，整个项目本次不部署。
+
+   Release 中没有被任何配置匹配上的资产（例如 `checksums.txt`）会被忽略。
+5. **先下载，后替换：** 所有要更新的资产全部下载并校验完，才开始碰线上文件，避免「下载到一半，一半新一半旧」。
+6. **替换并重启：** 依次替换文件/目录；然后执行被更新资产各自的 `restart`（相同命令只执行一次），最后执行项目级 `restart`。
+7. **记录：** 全部成功后才把最新 Release 记入 `state.json` 并发送通知。中间任何一步失败都不记录，下个周期从第 3 步重新来过。
+
+举个例子：上次部署的是 `build-1`；在两次检查之间先后出现了 `build-2`（含 `web.tar.gz`、`api`）和 `build-3`（只含 `web.tar.gz`）。bastion-pull 会合并处理：`web.tar.gz` 取自 `build-3`，`api` 取自 `build-2`，只重启这两个资产对应的服务，然后记录为已部署 `build-3`。
+
 ### 一键安装（推荐）
 
 在服务器上用 root 执行：
@@ -159,7 +194,6 @@ projects:
 | `extract_to` | 把 `.tar.gz` / `.tgz` / `.zip` 解压到的目录。目录会被**整体替换**（旧文件会消失），其上级目录需要可写。 |
 | `copy_to` | 目标文件路径（自动创建上级目录）。 |
 | `projects[].restart` | 该项目所有资产替换完成后执行一次的 shell 命令。退出码非 0 视为失败，下个周期重试。 |
-
 | `projects[].assets[].restart` | 只有**这个资产**被更新时才执行的 shell 命令（相同命令只执行一次），先于项目级 `restart` 执行。用来只重启发生变化的那个服务。 |
 
 **一切由匹配驱动。** Release 里只需要带有变化的资产（比如这次 Actions 只编译了管理端）。bastion-pull 会把 Release 的资产和配置里的 `assets[].name` 逐个匹配：匹配上的就执行对应动作（解压/复制，再执行它自己的 `restart`），配置了但这次 Release 里没有的资产直接跳过。项目级 `restart` 只在至少有一个资产匹配时才执行；一个都没匹配上，只记录版本、不做任何事。如果两次检查之间出现了多个 Release，会合并处理（同一资产取最新的），连续发布也不会漏掉更新。
@@ -222,15 +256,171 @@ notify:
 
 ### 在 GitHub Actions 中发布
 
-把构建产物上传到 GitHub Release，例如：
+bastion-pull 只认 Release 里的**资产文件名**，所以发布端和服务器端要约定好名字。
+
+#### 资产命名规则
+
+1. **用固定的文件名，不要把版本号写进文件名。** 版本已经体现在 Release 的标签上了。写 `app.jar`、`web.tar.gz`，不要写 `app-1.4.2.jar`。如果构建工具产出的文件名带版本号，在 workflow 里改名即可：
+
+   ```bash
+   cp target/myapp-*.jar out/app.jar
+   ```
+
+2. **一定要用通配符时，确保每个 Release 里它只匹配一个文件。** 例如 `app-*.jar` 会同时匹配 `app-1.0.jar` 和 `app-1.0-sources.jar`，这时会报 `matches 2 assets` 错误，整个项目不部署。通配符语法为 `*`、`?`、`[a-z]`，区分大小写。
+3. **不同程序的名字不能互相覆盖。** 比如 `web.tar.gz` 和 `admin.tar.gz`，不要写 `*.tar.gz` 这种能同时匹配两者的模式。
+4. **扩展名决定处理方式：** `extract_to` 只接受 `.tar.gz`、`.tgz`、`.zip`；`copy_to` 对任何文件都按原样复制。
+5. **打包目录时打包的是目录的「内容」**，这样文件会直接落在 `extract_to` 下：`tar -czf web.tar.gz -C dist .`
+6. 发布**正式** Release：草稿和预发布（`--prerelease`）不会被部署。
+
+workflow 里的文件名和配置的对应关系：
+
+| workflow 中上传的文件 | 配置 `assets[].name` | 动作 |
+|---|---|---|
+| `out/web.tar.gz` | `web.tar.gz` | `extract_to: /var/www/site` |
+| `out/admin.tar.gz` | `admin.tar.gz` | `extract_to: /var/www/admin` |
+| `out/api` | `api` | `copy_to: /opt/shop/api` |
+
+#### 单个程序的仓库
+
+每次 push 构建并发布一次即可：
 
 ```yaml
-- run: gh release create "build-$GITHUB_RUN_NUMBER" web.tar.gz app.jar --generate-notes
+- run: |
+    mkdir -p out && cp target/myapp-*.jar out/app.jar
+    gh release create "build-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}" out/app.jar --generate-notes
   env:
     GH_TOKEN: ${{ github.token }}
 ```
 
-目录类产物要打包目录的**内容**，这样文件会直接落在 `extract_to` 下：`tar -czf web.tar.gz -C dist .`
+#### Monorepo：只构建、只更新有改动的程序
+
+思路：workflow 根据本次 push 改动了哪些目录，**只构建对应的程序**，Release 里**只放这些产物**。bastion-pull 端用同一份配置列出全部程序，Release 里带了谁就更新谁、重启谁，没带的保持不动。
+
+假设仓库结构如下（`packages/shared` 被前端两个应用共用）：
+
+```
+apps/web/        → web.tar.gz    → /var/www/shop          （静态文件，无需重启）
+apps/admin/      → admin.tar.gz  → /var/www/shop-admin    （nginx reload）
+services/api/    → api           → /opt/shop/api          （systemctl restart shop-api）
+packages/shared/ → 改动时 web 和 admin 都要重新构建
+```
+
+`.github/workflows/release.yml`：
+
+```yaml
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:          # 手动运行 = 全部重新构建
+
+permissions:
+  contents: write
+
+concurrency:                  # 串行发布，保证 Release 的先后顺序与提交顺序一致
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # 需要完整历史才能 diff
+
+      - name: Detect changes
+        id: changes
+        run: |
+          before="${{ github.event.before }}"
+          # 手动运行、新建分支、强推导致旧提交不存在 → 全部构建
+          if [ "$GITHUB_EVENT_NAME" != push ] || [ -z "$before" ] \
+             || [ "$before" = 0000000000000000000000000000000000000000 ] \
+             || ! git cat-file -e "$before^{commit}" 2>/dev/null; then
+            files=ALL
+          else
+            files=$(git diff --name-only "$before" "$GITHUB_SHA")
+          fi
+          echo "$files"
+          changed() { [ "$files" = ALL ] || grep -qE "$1" <<<"$files"; }
+          if changed '^(apps/web|packages/shared)/';   then echo web=true   >> "$GITHUB_OUTPUT"; fi
+          if changed '^(apps/admin|packages/shared)/'; then echo admin=true >> "$GITHUB_OUTPUT"; fi
+          if changed '^services/api/';                 then echo api=true   >> "$GITHUB_OUTPUT"; fi
+          mkdir -p out
+
+      # 下面的构建命令换成你自己的
+      - name: Build web
+        if: steps.changes.outputs.web == 'true'
+        run: |
+          npm ci && npm run build -w apps/web
+          tar -czf out/web.tar.gz -C apps/web/dist .
+
+      - name: Build admin
+        if: steps.changes.outputs.admin == 'true'
+        run: |
+          npm ci && npm run build -w apps/admin
+          tar -czf out/admin.tar.gz -C apps/admin/dist .
+
+      - uses: actions/setup-go@v5
+        if: steps.changes.outputs.api == 'true'
+        with:
+          go-version-file: services/api/go.mod
+      - name: Build api
+        if: steps.changes.outputs.api == 'true'
+        working-directory: services/api
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o ../../out/api .
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          assets=(out/*)
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "没有程序发生变化，不发布 Release"; exit 0
+          fi
+          tag="build-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
+          # 提交信息作为更新日志（会显示在更新通知里）
+          jq -r '.commits[]?.message | split("\n")[0] | "- " + .' "$GITHUB_EVENT_PATH" > notes.md || true
+          [ -s notes.md ] || echo "- manual build" > notes.md
+          gh release create "$tag" "${assets[@]}" --title "$tag" --notes-file notes.md --target "$GITHUB_SHA"
+```
+
+服务器上的配置（一个仓库对应一个项目，列出全部程序）：
+
+```yaml
+projects:
+  - name: shop
+    repo: acme/shop
+    assets:
+      - name: web.tar.gz
+        extract_to: /var/www/shop                # 静态文件，不需要重启
+      - name: admin.tar.gz
+        extract_to: /var/www/shop-admin
+        restart: nginx -s reload
+      - name: api
+        copy_to: /opt/shop/api
+        mode: "0755"
+        restart: systemctl restart shop-api      # 只有 api 更新时才会执行
+```
+
+效果：
+
+| 本次 push 改动了 | Release 中的资产 | 服务器上发生的事 |
+|---|---|---|
+| `apps/web/**` | `web.tar.gz` | 只替换 `/var/www/shop` |
+| `services/api/**` | `api` | 只替换 `/opt/shop/api` 并 `systemctl restart shop-api` |
+| `packages/shared/**` | `web.tar.gz`、`admin.tar.gz` | 替换两个前端目录，执行一次 `nginx -s reload` |
+| 只改了 `README.md` | （不发布 Release） | 什么也不做 |
+| 手动运行 workflow | 全部 | 全部替换、全部重启 |
+
+注意事项：
+
+- **不要在项目级 `restart` 里重启具体服务。** 项目级 `restart` 只要有任意一个资产更新就会执行；想「改了谁才重启谁」，请写在资产级 `restart` 里。
+- **构建失败要补发。** 每次 push 只构建「这次 push 相对上次 push」改动的程序。如果某次 workflow 失败了，请在 Actions 页面 **Re-run** 那次运行（重跑使用同一个 push 事件，diff 范围不变），或者手动运行一次 workflow 做全量构建，否则那次的改动不会被发布。
+- **连续发布不会丢更新。** 两次检查之间发布了多个 Release 时，bastion-pull 会合并处理（见[工作原理](#工作原理)）。前提是这些 Release 在被部署之前没有被删除，且积压的数量不超过 30 个。
+- 如果要清理旧 Release（比如只保留最近 N 个），只删除已经部署过的旧版本即可，不影响 bastion-pull。
 
 ### 常见问题
 
@@ -238,7 +428,8 @@ notify:
 |---|---|
 | `404: no published release, or the token cannot see this repository` | 还没有发布过 Release、只有草稿/预发布、仓库名写错，或令牌没有该仓库的权限。 |
 | `401: token is invalid or expired` | 令牌无效或已过期，请更新。 |
-| `no asset matches "x" (available: …)` | Release 里没有配置中指定的资产。 |
+| `pattern "x" matches N assets, make it more specific` | 通配符在同一个 Release 里匹配到多个文件，见[资产命名规则](#资产命名规则)。 |
+| `release carries none of the configured assets, nothing to deploy` | Release 里没有任何文件名与配置匹配（不是错误）。检查 workflow 上传的文件名是否和 `assets[].name` 一致。 |
 | `download … failed after 8 attempts` | 到 GitHub 的网络很差。未下完的文件会保留，下个周期继续下载；可以尝试设置 `HTTPS_PROXY`。 |
 | `restart command: exit status N` | 重启命令执行失败，整个项目会在下个周期重试。 |
 
