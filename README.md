@@ -32,7 +32,7 @@
 - 任何一步失败（下载、替换、重启）都不会记为已部署，下个周期自动重试
 - 静态二进制，无依赖。提供 amd64、arm64、armv7、386、riscv64、loong64、mips64le 的 Linux 版本
 - 支持 `HTTPS_PROXY` / `NO_PROXY` 环境变量
-- 可选的更新通知：通过 [PushPlus（推送加）](https://www.pushplus.plus) 推送给一个或多个群组 / 好友
+- 可选的更新通知：通过 [PushPlus（推送加）](https://www.pushplus.plus) 推送给一个或多个群组 / 好友，或通过 SMTP 发邮件给多个收件人
 
 ### 工作原理
 
@@ -244,6 +244,28 @@ notify:
   sudo bastion-pull -notify-test      # 发一条模拟消息
   sudo bastion-pull -notify-latest    # 用各项目最新 Release 的真实内容发一条，标题带「【测试】」
   ```
+
+### 邮件通知（SMTP）
+
+也可以（或同时）通过 SMTP 发邮件，内容与 PushPlus 相同。一封邮件会同时发给 `to` 里的所有收件人。
+
+```yaml
+notify:
+  email:
+    host: smtp.qiye.aliyun.com
+    port: 465                           # 可选；ssl 默认 465，starttls 默认 587，none 默认 25
+    # security: ssl                     # ssl | starttls | none；默认：端口 465 用 ssl，否则 starttls
+    username: notification@mouse.asia   # 留空则不认证
+    password: ""                        # 授权码，或环境变量 SMTP_PASSWORD
+    from: "Bastion <notification@mouse.asia>"  # 可选，默认用 username
+    to:                                 # 一个或多个收件人（也可写成逗号分隔的字符串）
+      - dev@example.com
+      - ops@example.com
+```
+
+- `pushplus` 和 `email` 可以同时配置，两个渠道都会发送；项目下的 `notify: false` 对两者都生效。
+- 邮件配置有误（缺少 `host`、`to`，地址格式错误等）时程序会启动失败并给出提示。
+- `-notify-test` / `-notify-latest` 同样会发邮件。
 
 ### 行为说明
 

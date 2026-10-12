@@ -161,7 +161,7 @@ func (a *App) checkProject(ctx context.Context, p Project) error {
 	slog.Info("deployed", "project", p.Name, "tag", rel.TagName, "assets", len(jobs))
 
 	// 6. tell people; a failed notification never fails the (already finished) deployment
-	if len(jobs) > 0 && a.cfg.Notify.PushPlus != nil && (p.Notify == nil || *p.Notify) {
+	if len(jobs) > 0 && a.cfg.Notify.enabled() && (p.Notify == nil || *p.Notify) {
 		names := make([]string, len(jobs))
 		for i, j := range jobs {
 			names[i] = j.ra.Name
@@ -176,7 +176,7 @@ func (a *App) checkProject(ctx context.Context, p Project) error {
 			}
 			merged.Body = strings.Join(bodies, "\n")
 		}
-		a.cfg.Notify.PushPlus.notifyDeployed(ctx, p, &merged, names, "")
+		a.cfg.Notify.notifyDeployed(ctx, p, &merged, names, "")
 	}
 	return nil
 }
@@ -222,7 +222,6 @@ func runRestart(ctx context.Context, command string) error {
 // notifyLatest sends the real notification for each project's latest release without deploying
 // anything. It is meant for checking the notification setup. Returns how many projects failed.
 func (a *App) notifyLatest(ctx context.Context) (failed int) {
-	pp := a.cfg.Notify.PushPlus
 	for _, p := range a.cfg.Projects {
 		if p.Notify != nil && !*p.Notify {
 			slog.Info("notifications disabled for project, skipping", "project", p.Name)
@@ -240,7 +239,7 @@ func (a *App) notifyLatest(ctx context.Context) (failed int) {
 				names = append(names, m.Name)
 			}
 		}
-		pp.notifyDeployed(ctx, p, rel, names, "【测试】")
+		a.cfg.Notify.notifyDeployed(ctx, p, rel, names, "【测试】")
 	}
 	return failed
 }

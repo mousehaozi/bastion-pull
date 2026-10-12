@@ -32,7 +32,7 @@ Typical flow: *GitHub Actions builds and publishes a Release → bastion-pull no
 - If anything fails (download, replace, restart), nothing is marked as deployed and the next tick retries
 - Static binary, no dependencies. Linux builds for amd64, arm64, armv7, 386, riscv64, loong64, mips64le
 - Honors `HTTPS_PROXY` / `NO_PROXY`
-- Optional update notifications through [PushPlus](https://www.pushplus.plus) to one or more groups and/or friends
+- Optional update notifications through [PushPlus](https://www.pushplus.plus) to one or more groups and/or friends, or by SMTP email to several recipients
 
 ### How it works
 
@@ -244,6 +244,28 @@ notify:
   sudo bastion-pull -notify-test      # a dummy message
   sudo bastion-pull -notify-latest    # the real message for each project's latest release, titled "【测试】"
   ```
+
+### Email notifications (SMTP)
+
+Notifications can also (or only) go out over SMTP, with the same content as PushPlus. One message is sent to all recipients in `to`.
+
+```yaml
+notify:
+  email:
+    host: smtp.qiye.aliyun.com
+    port: 465                           # optional; default 465 for ssl, 587 for starttls, 25 for none
+    # security: ssl                     # ssl | starttls | none; default: ssl on port 465, otherwise starttls
+    username: notification@mouse.asia   # empty = no authentication
+    password: ""                        # authorization code, or env SMTP_PASSWORD
+    from: "Bastion <notification@mouse.asia>"  # optional, defaults to username
+    to:                                 # one or more recipients (or a comma separated string)
+      - dev@example.com
+      - ops@example.com
+```
+
+- `pushplus` and `email` can both be configured; every configured channel sends. `notify: false` on a project silences both.
+- An invalid email config (missing `host` or `to`, malformed address, ...) makes the program refuse to start with a message.
+- `-notify-test` / `-notify-latest` send emails too.
 
 ### Behavior notes
 

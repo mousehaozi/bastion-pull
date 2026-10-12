@@ -34,15 +34,15 @@ func main() {
 	}
 
 	if *notifyTest || *notifyLatest {
-		if cfg.Notify.PushPlus == nil {
-			fmt.Fprintln(os.Stderr, "notifications are not configured: set notify.pushplus.token in", *cfgPath)
+		if !cfg.Notify.enabled() {
+			fmt.Fprintln(os.Stderr, "notifications are not configured: set notify.pushplus or notify.email in", *cfgPath)
 			os.Exit(2)
 		}
 		ctx := context.Background()
 		failed := 0
 		if *notifyTest {
-			if err := cfg.Notify.PushPlus.sendTest(ctx); err != nil {
-				fmt.Fprintln(os.Stderr, "notify test failed:", err)
+			if n := cfg.Notify.sendTest(ctx); n > 0 {
+				fmt.Fprintf(os.Stderr, "notify test failed: %d send(s) failed\n", n)
 				failed++
 			}
 		}
@@ -57,7 +57,7 @@ func main() {
 		if failed > 0 {
 			os.Exit(1)
 		}
-		fmt.Println("done: check your PushPlus messages")
+		fmt.Println("done: check your PushPlus messages / mailbox")
 		return
 	}
 
