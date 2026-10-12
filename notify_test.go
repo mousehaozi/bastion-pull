@@ -57,7 +57,7 @@ func TestPushPlusTargets(t *testing.T) {
 	if err := cfg.validate(); err != nil {
 		t.Fatal(err)
 	}
-	cfg.PushPlus.notifyDeployed(context.Background(), Project{Name: "demo"},
+	cfg.notifyDeployed(context.Background(), Project{Name: "demo"},
 		&Release{TagName: "v1", HTMLURL: "https://x/y", Body: "- fix login\n- add <b>export</b>"}, []string{"app.jar"}, "")
 
 	if len(f.reqs) != 3 {
@@ -86,11 +86,12 @@ func TestPushPlusFailureIsReported(t *testing.T) {
 	f := newFakePush(t)
 	f.fail = true
 	p := &PushPlusConfig{Token: "T", APIURL: f.srv.URL}
-	if err := (&NotifyConfig{PushPlus: p}).validate(); err != nil {
+	nc := &NotifyConfig{PushPlus: p}
+	if err := nc.validate(); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.sendTest(context.Background()); err == nil {
-		t.Fatal("expected error")
+	if nc.sendTest(context.Background()) == 0 {
+		t.Fatal("expected failure")
 	}
 	if f.count() != 3 {
 		t.Fatalf("expected 3 attempts, got %d", f.count())

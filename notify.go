@@ -28,6 +28,41 @@ var updateTmpl = template.Must(template.New("update").Parse(updateHTML))
 
 type NotifyConfig struct {
 	PushPlus *PushPlusConfig `yaml:"pushplus"`
+	Email    *EmailConfig    `yaml:"email"`
+}
+
+// enabled reports whether at least one notification channel is configured.
+func (c *NotifyConfig) enabled() bool { return c.PushPlus != nil || c.Email != nil }
+
+// notifyDeployed sends the update message through every configured channel.
+func (c *NotifyConfig) notifyDeployed(ctx context.Context, proj Project, rel *Release, assets []string, titlePrefix string) {
+	title, content, err := deployedMessage(proj, rel, assets, titlePrefix)
+	if err != nil {
+		slog.Warn("render notification failed", "error", err)
+		return
+	}
+	if c.PushPlus != nil {
+		c.PushPlus.sendAll(ctx, title, content)
+	}
+	if c.Email != nil {
+		c.Email.sendAll(ctx, title, content)
+	}
+}
+
+// sendTest sends a dummy message through every configured channel and returns how many sends failed.
+func (c *NotifyConfig) sendTest(ctx context.Context) (failed int) {
+	title, content, err := testMessage()
+	if err != nil {
+		slog.Warn("render notification failed", "error", err)
+		return 1
+	}
+	if c.PushPlus != nil {
+		failed += c.PushPlus.sendAll(ctx, title, content)
+	}
+	if c.Email != nil {
+		failed += c.Email.sendAll(ctx, title, content)
+	}
+	return failed
 }
 
 // PushPlusConfig configures https://www.pushplus.plus notifications.
@@ -67,32 +102,46 @@ func (s *StringList) UnmarshalYAML(n *yaml.Node) error {
 }
 
 func (c *NotifyConfig) validate() error {
-	p := c.PushPlus
-	if p == nil {
-		return nil
+	if c.Email != nil {
+		if err := c.Email.validate(); err != nil {
+			return err
+		}
 	}
+	if c.PushPlus != nil {
+		ok, err := c.PushPlus.validate()
+		if err != nil {
+			return err
+		}
+		if !ok {
+			c.PushPlus = nil
+		}
+	}
+	return nil
+}
+
+// validate fills defaults; ok=false means the channel has no token and should be dropped.
+func (p *PushPlusConfig) validate() (ok bool, err error) {
 	if p.Token == "" {
 		p.Token = os.Getenv("PUSHPLUS_TOKEN")
 	}
 	if p.Token == "" {
-		slog.Warn("notify.pushplus.token is empty: update notifications are disabled")
-		c.PushPlus = nil
-		return nil
+		slog.Warn("notify.pushplus.token is empty: PushPlus notifications are disabled")
+		return false, nil
 	}
 	if p.APIURL == "" {
 		p.APIURL = "https://www.pushplus.plus/send"
 	}
 	for i, t := range p.Targets {
 		if t.Topic != "" && len(t.To) > 0 {
-			return fmt.Errorf("notify.pushplus.targets[%d]: set either topic or to, not both", i)
+			return false, fmt.Errorf("notify.pushplus.targets[%d]: set either topic or to, not both", i)
 		}
 		if len(t.To) > 100 {
-			return fmt.Errorf("notify.pushplus.targets[%d]: at most 100 friend tokens per target", i)
+			return false, fmt.Errorf("notify.pushplus.targets[%d]: at most 100 friend tokens per target", i)
 		}
 	}
 	tr := http.DefaultTransport.(*http.Transport).Clone() // keeps HTTPS_PROXY support
 	p.client = &http.Client{Transport: tr, Timeout: 20 * time.Second}
-	return nil
+	return true, nil
 }
 
 func (t PPTarget) label() string {
@@ -125,33 +174,22 @@ func renderUpdate(ev updateEvent) (string, error) {
 	return b.String(), nil
 }
 
-func (p *PushPlusConfig) notifyDeployed(ctx context.Context, proj Project, rel *Release, assets []string, titlePrefix string) {
+func deployedMessage(proj Project, rel *Release, assets []string, titlePrefix string) (title, content string, err error) {
 	host, _ := os.Hostname()
-	ev := updateEvent{
+	content, err = renderUpdate(updateEvent{
 		Project: proj.Name, Tag: rel.TagName, Time: time.Now().Format("2006-01-02 15:04:05"),
 		Host: host, URL: rel.HTMLURL, Notes: summarizeNotes(rel.Body, 8), Assets: assets,
-	}
-	content, err := renderUpdate(ev)
-	if err != nil {
-		slog.Warn("render notification failed", "error", err)
-		return
-	}
-	p.sendAll(ctx, fmt.Sprintf("%s【%s】已更新 %s", titlePrefix, proj.Name, rel.TagName), content)
+	})
+	return fmt.Sprintf("%s【%s】已更新 %s", titlePrefix, proj.Name, rel.TagName), content, err
 }
 
-func (p *PushPlusConfig) sendTest(ctx context.Context) error {
+func testMessage() (title, content string, err error) {
 	host, _ := os.Hostname()
-	content, err := renderUpdate(updateEvent{
+	content, err = renderUpdate(updateEvent{
 		Project: "测试 / test", Tag: "v0.0.0-test", Time: time.Now().Format("2006-01-02 15:04:05"), Host: host,
 		Notes: []string{"这是一条来自 bastion-pull 的测试消息", "This is a test message"}, Assets: []string{"app.jar", "web.tar.gz"},
 	})
-	if err != nil {
-		return err
-	}
-	if n := p.sendAll(ctx, "【bastion-pull】测试通知", content); n > 0 {
-		return fmt.Errorf("%d target(s) failed", n)
-	}
-	return nil
+	return "【bastion-pull】测试通知", content, err
 }
 
 // sendAll sends to every target and returns how many failed.
